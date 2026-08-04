@@ -24,7 +24,7 @@ def _add_delivery_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--provider",
         action="append",
-        help="Provider to use (desktop or telegram); repeat or use a comma-separated value.",
+        help="Provider to use (desktop, ntfy, or telegram); repeat or use commas.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Print without delivering.")
 
