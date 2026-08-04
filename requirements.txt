@@ -1,0 +1,2 @@
+# codex-watch-notifier has no third-party runtime dependencies.
+# Install the package with: python -m pip install .
