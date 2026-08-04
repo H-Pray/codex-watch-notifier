@@ -25,6 +25,27 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaises(ConfigurationError):
             settings.validate_provider("telegram")
 
+    def test_ntfy_settings(self) -> None:
+        settings = Settings.from_environment(
+            {
+                "NOTIFICATION_PROVIDERS": "ntfy",
+                "NTFY_SERVER_URL": "https://ntfy.example/",
+                "NTFY_TOPIC": "private-topic",
+                "NTFY_TOKEN": "secret",
+                "NTFY_PRIORITY": "high",
+            }
+        )
+        settings.validate_provider("ntfy")
+        self.assertEqual(settings.ntfy_server_url, "https://ntfy.example")
+        self.assertEqual(settings.ntfy_topic, "private-topic")
+        self.assertEqual(settings.ntfy_token, "secret")
+        self.assertEqual(settings.ntfy_priority, "high")
+
+    def test_missing_ntfy_topic_is_rejected(self) -> None:
+        settings = Settings.from_environment({"NOTIFICATION_PROVIDERS": "ntfy"})
+        with self.assertRaises(ConfigurationError):
+            settings.validate_provider("ntfy")
+
     def test_dotenv_does_not_replace_existing_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / ".env"

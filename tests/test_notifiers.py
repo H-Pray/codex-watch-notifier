@@ -7,6 +7,7 @@ from codex_watch.notifier.base import (
     NotificationProvider,
     NotifierService,
 )
+from codex_watch.notifier.ntfy import NtfyNotifier
 from codex_watch.notifier.telegram import TelegramNotifier
 
 
@@ -52,6 +53,26 @@ class NotifierTests(unittest.TestCase):
         self.assertEqual(request.method, "POST")
         self.assertIn(b"chat_id=123", request.data)
         self.assertIn(b"done", request.data)
+
+    @patch("codex_watch.notifier.ntfy.urlopen")
+    def test_ntfy_posts_message(self, urlopen: MagicMock) -> None:
+        response = MagicMock()
+        response.read.return_value = b'{"id": "message-id"}'
+        urlopen.return_value.__enter__.return_value = response
+
+        NtfyNotifier(
+            "https://ntfy.example/",
+            "private-topic",
+            token="secret",
+            priority="high",
+        ).send(Notification("Codex Watch", "Codex completed!"))
+
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, "https://ntfy.example/private-topic")
+        self.assertEqual(request.method, "POST")
+        self.assertEqual(request.data.decode("utf-8"), "Codex completed!")
+        self.assertEqual(request.get_header("Authorization"), "Bearer secret")
+        self.assertEqual(request.get_header("X-priority"), "high")
 
 
 if __name__ == "__main__":
