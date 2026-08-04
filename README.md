@@ -1,343 +1,323 @@
 # codex-watch-notifier
 
-`codex-watch-notifier` is a lightweight, open-source command-line tool that tells you
-when a local Codex coding task finishes. Send the result to Telegram (and therefore
-to a phone or mirrored smartwatch), show it on the desktop, or enable both.
+Receive an Apple Watch notification when a local OpenAI Codex CLI turn finishes.
 
 ```text
-Local Codex
-    ↓ exits
-codex-watch wrapper
+Codex CLI
+    ↓ Stop lifecycle hook
+scripts/codex_complete.py
     ↓
-Telegram and/or desktop notification
+NtfyNotifier
     ↓
-Phone notification
+ntfy server
+    ↓
+iPhone notification
     ↓ notification mirroring
-Smartwatch vibration
+Apple Watch vibration
 ```
 
-The project has no third-party runtime dependencies. It supports Python 3.9 or newer.
-
-## Why this exists
-
-Coding agents can run long enough that watching the terminal wastes attention. Codex
-Watch lets you step away while keeping the feedback loop short: start one command,
-continue with something else, and receive a completion or failure notification.
-
-The tool is project-independent. Install it once and use it from any directory where
-you run the Codex CLI.
-
-## Demo workflow
-
-```console
-$ codex-watch run "implement authentication system"
-# Codex runs normally in this terminal...
-Notification delivered via telegram.
-```
-
-On success:
+The notification includes the prompt and project context:
 
 ```text
-Codex Watch
-✅ Codex task completed (42.3s)
+✅ Codex Finished
+Improve the Codex Watch notification system
+Project: codex-watch-notifier
+Directory: C:\work\codex-watch-notifier
 ```
 
-On failure:
+If Codex cannot associate a prompt with the completed turn, the body falls back to
+`Codex task completed`.
 
-```text
-Codex Watch
-❌ Codex task failed with exit code 1 (8.7s)
-```
+The tool uses Python 3.9 or newer and has no third-party runtime dependencies.
 
-The wrapper returns the original Codex exit code, making it safe to use in scripts.
-A notification error is printed as a warning but never changes the Codex result.
+## Features
 
-## Installation
+- Official Codex `UserPromptSubmit` prompt capture plus `Stop` completion integration.
+- ntfy notifications for iPhone and Apple Watch.
+- Optional desktop notifications on Windows, macOS, and Linux.
+- Optional Telegram provider retained for existing users.
+- Environment-based configuration with `.env` support.
+- A wrapper command for older or custom Codex workflows.
+- Notification failures never prevent Codex from completing a turn.
 
-### From a clone
+## Quick start on Windows
 
-```bash
+Clone and enter the repository:
+
+```powershell
 git clone https://github.com/H1234L1/codex-watch-notifier.git
 cd codex-watch-notifier
+```
+
+The hook script can run directly from the clone. Installing the package also makes
+the `codex-watch` wrapper command available:
+
+```powershell
 python -m pip install .
 ```
 
-For an editable developer installation:
-
-```bash
-python -m pip install -e .
-```
-
-[`pipx`](https://pipx.pypa.io/) is also a good fit for a global command-line tool:
-
-```bash
-pipx install .
-```
-
-Confirm the command is available:
-
-```bash
-codex-watch --version
-```
-
-## Configuration
-
-Copy the example file and edit the copy. `.env` is ignored by Git.
-
-macOS/Linux:
-
-```bash
-cp example.env .env
-```
-
-Windows PowerShell:
+Create your local configuration:
 
 ```powershell
 Copy-Item example.env .env
+notepad .env
 ```
 
-The default configuration uses desktop notifications only:
+Set at least these values:
 
 ```dotenv
-NOTIFICATION_PROVIDERS=desktop
-CODEX_COMMAND=codex
-CODEX_ARGS=exec
+NOTIFICATION_PROVIDERS=ntfy
+NTFY_SERVER_URL=https://ntfy.sh
+NTFY_TOPIC=codex-watch-2026
+NTFY_TOKEN=
+NTFY_PRIORITY=default
 CODEX_WATCH_TITLE=Codex Watch
 ```
 
-Use Telegram, or both providers, with a comma-separated value:
+`.env` is ignored by Git and must not be committed.
+
+## ntfy and Apple Watch setup
+
+1. Install the ntfy app on the paired iPhone.
+2. Subscribe to the same topic configured in `NTFY_TOPIC`.
+3. Enable ntfy notifications in **iPhone Settings → Notifications → ntfy**.
+4. Open the iPhone **Watch** app.
+5. Open **My Watch → Notifications**.
+6. Under **Mirror iPhone Alerts From**, enable ntfy.
+7. For a realistic test, wear and unlock the Watch, then lock the iPhone.
+
+Apple normally sends an alert to either the unlocked iPhone or the Watch, not both.
+When the iPhone is locked or asleep, the alert should be routed to the unlocked Watch.
+Focus modes and muted app notifications can suppress the vibration.
+
+### Topic security
+
+Public ntfy topics have no access control unless you configure authentication. Anyone
+who guesses a public topic name may be able to publish to or subscribe to it. Prefer a
+long random topic for normal use, or configure `NTFY_TOKEN` with a protected/self-hosted
+ntfy server.
+
+## Test ntfy before configuring Codex
+
+From the repository directory, simulate the two Codex events with the same session and
+turn IDs:
+
+```powershell
+'{"hook_event_name":"UserPromptSubmit","session_id":"manual-test","turn_id":"turn-1","prompt":"Improve the Codex Watch notification","cwd":"C:\\work\\codex-watch-notifier"}' |
+    python .\scripts\codex_complete.py --env-file .\.env --provider ntfy
+
+'{"hook_event_name":"Stop","session_id":"manual-test","turn_id":"turn-1","stop_hook_active":false,"cwd":"C:\\work\\codex-watch-notifier"}' |
+    python .\scripts\codex_complete.py --env-file .\.env --provider ntfy
+```
+
+Expected console output:
+
+```json
+{"continue": true, "suppressOutput": true}
+```
+
+With the iPhone locked, your Apple Watch should receive a notification titled `✅ Codex Finished` containing the simulated prompt and project. The JSON output is the
+normal machine-readable response expected by the Codex Stop hook.
+
+You can also test ntfy without a hook payload after installing the package:
+
+```powershell
+codex-watch notify --provider ntfy --message "Codex completed!"
+```
+
+## Configure Codex prompt capture and the Stop hook
+
+Codex reads user-level hooks from:
+
+```text
+C:\Users\YOUR_NAME\.codex\hooks.json
+```
+
+Use a user-level hook so the notification works in every repository. Commands run with
+the active Codex session directory as their working directory, so use absolute paths.
+
+Create or merge this configuration, replacing all repository paths. `UserPromptSubmit` captures the documented `prompt` field; `Stop` reads that per-turn value and sends the notification:
+
+```json
+{
+  "description": "Capture the current Codex prompt and notify when the turn stops.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"C:\\absolute\\path\\to\\codex-watch-notifier\\scripts\\codex_complete.py\" --env-file \"C:\\absolute\\path\\to\\codex-watch-notifier\\.env\" --provider ntfy",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"C:\\absolute\\path\\to\\codex-watch-notifier\\scripts\\codex_complete.py\" --env-file \"C:\\absolute\\path\\to\\codex-watch-notifier\\.env\" --provider ntfy",
+            "timeout": 15,
+            "statusMessage": "Sending Codex completion notification"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The prompt is cached by `session_id` and `turn_id` in the operating-system temporary directory, then deleted when the matching `Stop` event consumes it. No transcript parsing is used.
+
+A ready-to-edit template is available at
+[`examples/hooks.windows.json`](examples/hooks.windows.json). macOS and Linux users can
+start with [`examples/hooks.posix.json`](examples/hooks.posix.json).
+
+Important: do not replace an existing `notify = [...]` setting in
+`~/.codex/config.toml`. The `Stop` hook is additive and can coexist with Codex Computer
+Use or another existing notification command.
+
+After creating or changing `hooks.json`:
+
+1. Start Codex CLI.
+2. Run `/hooks`.
+3. Review and trust the new `UserPromptSubmit` and `Stop` hooks.
+4. Exit and start a new Codex turn if requested by the CLI.
+
+Codex records trust against the hook definition. If the command changes later, open
+`/hooks` and approve the new definition again. See the
+[official Codex hooks documentation](https://developers.openai.com/codex/hooks).
+
+## End-to-end Codex test on Windows
+
+PowerShell may choose the npm `codex.ps1` shim, which can be blocked by execution
+policy. Calling `codex.cmd` avoids that issue:
+
+```powershell
+codex.cmd exec "Reply with only: done"
+```
+
+When the turn stops, the hook sends the original prompt and working-directory context through ntfy. Lock the iPhone
+before running the command if you want the alert to appear on Apple Watch rather than
+the phone.
+
+## Configuration reference
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `NOTIFICATION_PROVIDERS` | `desktop` | Comma-separated provider names: `ntfy`, `desktop`, `telegram` |
+| `NTFY_SERVER_URL` | `https://ntfy.sh` | ntfy server base URL |
+| `NTFY_TOPIC` | none | Required ntfy topic |
+| `NTFY_TOKEN` | none | Optional bearer token for protected topics |
+| `NTFY_PRIORITY` | `default` | ntfy priority, such as `default` or `high` |
+| `CODEX_WATCH_TITLE` | `Codex Watch` | Wrapper/manual notification title; the completion hook uses `✅ Codex Finished` |
+| `TELEGRAM_BOT_TOKEN` | none | Required only for the optional Telegram provider |
+| `TELEGRAM_CHAT_ID` | none | Required only for the optional Telegram provider |
+| `CODEX_COMMAND` | `codex` | Executable used by the wrapper command |
+| `CODEX_ARGS` | `exec` | Arguments placed before the wrapper prompt |
+
+Real environment variables take precedence over `.env` values.
+
+## Optional providers
+
+Use ntfy and desktop together:
+
+```dotenv
+NOTIFICATION_PROVIDERS=ntfy,desktop
+```
+
+Send one desktop test:
+
+```powershell
+codex-watch notify --provider desktop --message "Desktop test"
+```
+
+Telegram remains supported for existing users:
 
 ```dotenv
 NOTIFICATION_PROVIDERS=telegram
-# or: NOTIFICATION_PROVIDERS=desktop,telegram
-
 TELEGRAM_BOT_TOKEN=replace-with-your-token
 TELEGRAM_CHAT_ID=replace-with-your-chat-id
 ```
 
-Normal environment variables override values from `.env`. You can use another file
-by placing the global option before the subcommand:
-
-```bash
-codex-watch --env-file ~/.config/codex-watch.env run "update dependencies"
-```
-
-Never commit a real bot token. If one is exposed, revoke it with BotFather and create
-a replacement.
-
-Validate configuration without sending anything:
-
-```bash
-codex-watch check
-```
-
-Send a safe dry-run sample:
-
-```bash
-codex-watch notify --dry-run --message "✅ Codex task completed"
-```
-
-Send a real test notification:
-
-```bash
-codex-watch notify --status success --message "✅ Codex Watch is connected"
-```
-
-You can override providers for one command:
-
-```bash
+```powershell
 codex-watch notify --provider telegram --message "Telegram test"
 ```
 
-## Telegram setup
+No Telegram configuration is needed for the ntfy/Apple Watch workflow.
 
-Telegram is the easiest cross-platform route from a local computer to a smartwatch.
+## Wrapper command
 
-1. Open Telegram and start a chat with **@BotFather**.
-2. Send `/newbot`, follow the prompts, and copy the bot token.
-3. Open a chat with the bot you created and send it any message such as `hello`.
-4. In a browser, visit the following URL with your token substituted:
+The official Stop hook is recommended. The existing wrapper remains useful when hooks
+are unavailable or when wrapping another Codex executable:
 
-   ```text
-   https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates
-   ```
-
-5. Find `message.chat.id` in the JSON response. That number is the chat ID.
-6. Add both values to `.env`, set `NOTIFICATION_PROVIDERS=telegram`, and run:
-
-   ```bash
-   codex-watch notify --message "Codex Watch test"
-   ```
-
-For a group, add the bot to the group, send a group message, and inspect `getUpdates`.
-Group chat IDs commonly begin with a minus sign.
-
-### How smartwatch notifications work
-
-Codex Watch sends a normal Telegram notification to the phone; it does not connect
-directly to the watch. Smartwatches then use their normal phone-notification mirroring.
-
-For Apple Watch:
-
-1. Install Telegram on the paired iPhone and allow Telegram notifications in iOS.
-2. Open the iPhone **Watch** app.
-3. In **Notifications**, enable mirroring for Telegram.
-4. Lock the iPhone or let its display sleep, then send a test notification.
-
-Apple decides whether an alert appears on the iPhone or Watch based on device state.
-Focus modes, notification summaries, muted Telegram chats, and Watch wrist detection
-can affect delivery. Android watches have a similar notification-access or mirroring
-setting in their companion application.
-
-## Desktop notifications
-
-No Python notification package is required:
-
-- **Windows:** uses PowerShell plus the built-in Windows Forms notification icon.
-- **macOS:** uses `osascript` and Notification Center. The terminal may ask for
-  notification permission on first use.
-- **Linux:** uses `notify-send`. On Debian/Ubuntu, install it with
-  `sudo apt install libnotify-bin` if it is missing.
-
-Test only the desktop provider:
-
-```bash
-codex-watch notify --provider desktop --message "Desktop test"
-```
-
-Windows Focus Assist, macOS Focus, or a Linux notification daemon can suppress or
-delay desktop banners even when the command succeeds.
-
-## Codex integration
-
-### Recommended: wrapper command
-
-The default invocation is equivalent to:
-
-```bash
-codex exec "your prompt"
-```
-
-Run it through Codex Watch:
-
-```bash
+```powershell
 codex-watch run "refactor the API client"
 ```
 
-Extra Codex arguments can be passed after the prompt. Use `--` to make the boundary
-explicit:
-
-```bash
-codex-watch run "fix the failing tests" -- --full-auto
-```
-
-If your Codex installation uses a different executable or arguments, configure them:
-
-```dotenv
-CODEX_COMMAND=/opt/homebrew/bin/codex
-CODEX_ARGS=exec --full-auto
-```
-
-The executable can also be overridden once:
-
-```bash
-codex-watch run --codex-command /custom/path/codex "review this repository"
-```
-
-### Shell integration
-
-The [`examples/run-codex.sh`](examples/run-codex.sh) and
-[`examples/run-codex.ps1`](examples/run-codex.ps1) scripts show the underlying pattern:
-run Codex, capture `$?` or `$LASTEXITCODE`, notify, and return the captured exit code.
-This is useful for aliases, CI jobs, or integrating a different agent command.
-
-### Hook integration
-
-If a Codex release or another tool exposes a completion hook, invoke the direct
-notification command from that hook:
-
-```bash
-codex-watch notify --status success --message "✅ Codex task completed"
-```
-
-Use `--status failure` and the matching message from an error hook. The `notify`
-subcommand is independent of the Codex wrapper and works in any automation.
-
-## Command reference
-
-```text
-codex-watch run [options] PROMPT [-- CODEX_ARGS...]
-codex-watch notify [options]
-codex-watch check [--provider desktop|telegram]
-```
-
-Run `codex-watch <command> --help` for all command-specific options.
+It executes `codex exec <prompt>`, sends success or failure notifications after the
+process exits, and preserves the original Codex exit code.
 
 ## Architecture
 
 ```text
 src/codex_watch/
-├── config.py              # .env and environment configuration
-├── main.py                # CLI and workflow orchestration
-├── runner.py              # Codex subprocess execution
+├── config.py
+├── hook.py                   # Prompt capture and Stop-event handling
+├── main.py                   # codex-watch CLI
+├── runner.py                 # optional Codex wrapper
 └── notifier/
-    ├── base.py            # provider interface, models, fan-out service
-    ├── desktop.py         # native Windows/macOS/Linux provider
-    └── telegram.py        # Telegram Bot API provider
+    ├── base.py               # provider interface and fan-out service
+    ├── ntfy.py               # ntfy HTTP backend
+    ├── desktop.py            # Windows/macOS/Linux desktop backend
+    └── telegram.py           # optional Telegram backend
+
+scripts/
+└── codex_complete.py         # executable Stop-hook entry point
 ```
 
-To add a provider:
-
-1. Subclass `NotificationProvider` from `notifier/base.py`.
-2. Implement `name` and `send(notification)`.
-3. Add its configuration validation to `Settings.validate_provider`.
-4. Register its constructor in `build_providers`.
-5. Add focused tests and configuration documentation.
-
-Provider failures are isolated, so one failed destination does not prevent another
-from receiving the same event.
+Codex event parsing never lives in the ntfy provider. This keeps notification delivery
+replaceable and makes the hook independently testable.
 
 ## Development and tests
 
-The test suite uses the standard-library `unittest` package. Telegram and Codex are
-mocked, so tests do not consume API calls or start a real agent task.
+Unit tests mock network requests and do not send real ntfy or Telegram messages:
 
-```bash
-python -m unittest discover -s tests -v
+```powershell
+$env:PYTHONPATH = "$PWD\src"
+python -B -m unittest discover -s tests -v
 ```
 
-Check all Python source files compile:
+Check source compilation:
 
-```bash
-python -m compileall -q src tests
+```powershell
+python -m compileall -q src scripts tests
 ```
 
-## Current limitations
+## Troubleshooting
 
-- The wrapper detects completion when the Codex process exits; it does not inspect
-  internal Codex events or distinguish partial task completion.
-- Telegram requires internet access and stores a bot token locally.
-- Desktop display is controlled by operating-system permissions and focus settings.
-- Windows uses a temporary notification-area icon rather than a registered Windows
-  app identity, so appearance and history vary by Windows version.
-- Smartwatch behavior depends on the paired phone, wearable settings, and Telegram.
-- This initial repository is not published to PyPI; install it from a clone or Git URL.
+### Direct test works but Codex sends nothing
 
-## Future extensions
+- Run `/hooks` and trust the hook definition.
+- Confirm `C:\Users\YOUR_NAME\.codex\hooks.json` contains both `UserPromptSubmit` and `Stop` entries.
+- Use absolute paths in the hook command.
+- Confirm Python is available in the environment used to launch Codex.
+- Run the hook command manually with the test JSON shown above.
 
-- Discord, Slack, ntfy, Pushover, email, and generic webhook providers.
-- A provider entry-point system so external packages can register plugins.
-- Richer task context: prompt summary, repository name, duration thresholds, and logs.
-- Native Windows App SDK toast registration and richer notification actions.
-- Optional retry/backoff and a local delivery queue for temporary network failures.
-- Official Codex event-hook integration when an appropriate stable hook is available.
-- PyPI releases, signed artifacts, and CI across Windows, macOS, and Linux.
+### iPhone receives it but Apple Watch does not vibrate
 
-## Contributing
+- Lock the iPhone before testing.
+- Ensure the Watch is worn and unlocked.
+- Enable ntfy under **Watch → Notifications → Mirror iPhone Alerts From**.
+- Check Focus modes and ntfy notification permissions.
 
-Issues and pull requests are welcome. Keep providers small, type-annotated, and easy
-to test without real credentials. Do not add secrets, `.env`, or captured user prompts
-to commits.
+### ntfy returns an authorization error
+
+- Remove `NTFY_TOKEN` for an unprotected public topic.
+- For a protected topic, verify the bearer token and server URL.
+- Confirm the token has permission to publish to the selected topic.
 
 ## License
 

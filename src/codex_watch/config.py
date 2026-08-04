@@ -60,6 +60,10 @@ class Settings:
     """Application settings sourced from environment variables."""
 
     providers: tuple[str, ...] = ("desktop",)
+    ntfy_server_url: str = "https://ntfy.sh"
+    ntfy_topic: str | None = None
+    ntfy_token: str | None = None
+    ntfy_priority: str = "default"
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
     codex_command: str = "codex"
@@ -78,6 +82,10 @@ class Settings:
 
         return cls(
             providers=providers,
+            ntfy_server_url=values.get("NTFY_SERVER_URL", "https://ntfy.sh").rstrip("/"),
+            ntfy_topic=values.get("NTFY_TOPIC") or None,
+            ntfy_token=values.get("NTFY_TOKEN") or None,
+            ntfy_priority=values.get("NTFY_PRIORITY", "default").strip() or "default",
             telegram_bot_token=values.get("TELEGRAM_BOT_TOKEN") or None,
             telegram_chat_id=values.get("TELEGRAM_CHAT_ID") or None,
             codex_command=values.get("CODEX_COMMAND", "codex").strip() or "codex",
@@ -89,7 +97,12 @@ class Settings:
     def validate_provider(self, name: str) -> None:
         """Validate settings needed by a single provider."""
 
-        if name == "telegram":
+        if name == "ntfy":
+            if not self.ntfy_topic:
+                raise ConfigurationError("ntfy is enabled but NTFY_TOPIC is missing")
+            if not self.ntfy_server_url:
+                raise ConfigurationError("ntfy is enabled but NTFY_SERVER_URL is empty")
+        elif name == "telegram":
             missing = []
             if not self.telegram_bot_token:
                 missing.append("TELEGRAM_BOT_TOKEN")
