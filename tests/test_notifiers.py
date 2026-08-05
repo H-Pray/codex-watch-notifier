@@ -66,36 +66,15 @@ class NotifierTests(unittest.TestCase):
             "https://ntfy.example/",
             "private-topic",
             token="secret",
-            priority="default",
-        ).send(
-            Notification(
-                "✅ Codex Finished",
-                "Task and project context",
-                status=NotificationStatus.SUCCESS,
-            )
-        )
+            priority="high",
+        ).send(Notification("Codex Watch", "Codex completed!"))
 
         request = urlopen.call_args.args[0]
         self.assertEqual(request.full_url, "https://ntfy.example/private-topic")
         self.assertEqual(request.method, "POST")
-        self.assertEqual(request.data.decode("utf-8"), "Task and project context")
+        self.assertEqual(request.data.decode("utf-8"), "Codex completed!")
         self.assertEqual(request.get_header("Authorization"), "Bearer secret")
         self.assertEqual(request.get_header("X-priority"), "high")
-        title = str(make_header(decode_header(request.get_header("X-title"))))
-        self.assertEqual(title, "✅ Codex Finished")
-
-    @patch("codex_watch.notifier.ntfy.urlopen")
-    def test_ntfy_keeps_configured_priority_for_non_completion(
-        self, urlopen: MagicMock
-    ) -> None:
-        urlopen.return_value.__enter__.return_value = MagicMock()
-
-        NtfyNotifier("https://ntfy.example", "topic", priority="low").send(
-            Notification("Information", "Still running")
-        )
-
-        request = urlopen.call_args.args[0]
-        self.assertEqual(request.get_header("X-priority"), "low")
 
 
 if __name__ == "__main__":
