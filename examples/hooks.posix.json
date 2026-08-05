@@ -1,5 +1,5 @@
 {
-  "description": "Capture the current Codex prompt and notify when the turn stops.",
+  "description": "Capture Codex prompts and notify on approval requests and completion.",
   "hooks": {
     "UserPromptSubmit": [
       {
@@ -8,6 +8,18 @@
             "type": "command",
             "command": "python3 /absolute/path/to/codex-watch-notifier/scripts/codex_complete.py --env-file /absolute/path/to/codex-watch-notifier/.env --provider ntfy",
             "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /absolute/path/to/codex-watch-notifier/scripts/codex_complete.py --env-file /absolute/path/to/codex-watch-notifier/.env --provider ntfy",
+            "timeout": 15,
+            "statusMessage": "Sending Codex approval notification"
           }
         ]
       }

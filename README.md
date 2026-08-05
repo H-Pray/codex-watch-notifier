@@ -1,25 +1,25 @@
 # codex-watch-notifier
 
-Receive an Apple Watch notification when a local OpenAI Codex CLI turn finishes.
+Receive an Apple Watch notification when local OpenAI Codex CLI needs approval or finishes a turn.
 
 ```text
 Codex CLI
-    ↓ Stop lifecycle hook
+    ? PermissionRequest or Stop lifecycle hook
 scripts/codex_complete.py
-    ↓
+    ?
 NtfyNotifier
-    ↓
+    ?
 ntfy server
-    ↓
+    ?
 iPhone notification
-    ↓ notification mirroring
+    ? notification mirroring
 Apple Watch vibration
 ```
 
 The notification includes the prompt and project context:
 
 ```text
-✅ Codex Finished
+? Codex Finished
 Improve the Codex Watch notification system
 Project: codex-watch-notifier
 Directory: C:\work\codex-watch-notifier
@@ -32,7 +32,7 @@ The tool uses Python 3.9 or newer and has no third-party runtime dependencies.
 
 ## Features
 
-- Official Codex `UserPromptSubmit` prompt capture plus `Stop` completion integration.
+- Official Codex `UserPromptSubmit` prompt capture, `PermissionRequest` approval alerts, and `Stop` completion integration.
 - ntfy notifications for iPhone and Apple Watch.
 - Optional desktop notifications on Windows, macOS, and Linux.
 - Optional Telegram provider retained for existing users.
@@ -80,9 +80,9 @@ CODEX_WATCH_TITLE=Codex Watch
 
 1. Install the ntfy app on the paired iPhone.
 2. Subscribe to the same topic configured in `NTFY_TOPIC`.
-3. Enable ntfy notifications in **iPhone Settings → Notifications → ntfy**.
+3. Enable ntfy notifications in **iPhone Settings ? Notifications ? ntfy**.
 4. Open the iPhone **Watch** app.
-5. Open **My Watch → Notifications**.
+5. Open **My Watch ? Notifications**.
 6. Under **Mirror iPhone Alerts From**, enable ntfy.
 7. For a realistic test, wear and unlock the Watch, then lock the iPhone.
 
@@ -99,11 +99,14 @@ ntfy server.
 
 ## Test ntfy before configuring Codex
 
-From the repository directory, simulate the two Codex events with the same session and
-turn IDs:
+From the repository directory, simulate prompt capture, an approval request, and
+completion with the same session and turn IDs:
 
 ```powershell
 '{"hook_event_name":"UserPromptSubmit","session_id":"manual-test","turn_id":"turn-1","prompt":"Improve the Codex Watch notification","cwd":"C:\\work\\codex-watch-notifier"}' |
+    python .\scripts\codex_complete.py --env-file .\.env --provider ntfy
+
+'{"hook_event_name":"PermissionRequest","session_id":"manual-test","turn_id":"turn-1","tool_name":"shell_command","tool_input":{"command":"git push origin v1.0.0"},"cwd":"C:\\work\\codex-watch-notifier"}' |
     python .\scripts\codex_complete.py --env-file .\.env --provider ntfy
 
 '{"hook_event_name":"Stop","session_id":"manual-test","turn_id":"turn-1","stop_hook_active":false,"cwd":"C:\\work\\codex-watch-notifier"}' |
@@ -116,8 +119,9 @@ Expected console output:
 {"continue": true, "suppressOutput": true}
 ```
 
-With the iPhone locked, your Apple Watch should receive a notification titled `✅ Codex Finished` containing the simulated prompt and project. The JSON output is the
-normal machine-readable response expected by the Codex Stop hook.
+With the iPhone locked, your Apple Watch should first receive `?? Codex Needs Approval`,
+then `? Codex Finished`. The hook JSON output is machine-readable and never includes
+an allow or deny decision, so the real approval dialog remains in Codex.
 
 You can also test ntfy without a hook payload after installing the package:
 
@@ -125,7 +129,7 @@ You can also test ntfy without a hook payload after installing the package:
 codex-watch notify --provider ntfy --message "Codex completed!"
 ```
 
-## Configure Codex prompt capture and the Stop hook
+## Configure Codex prompt capture, approval, and completion hooks
 
 Codex reads user-level hooks from:
 
@@ -136,7 +140,9 @@ C:\Users\YOUR_NAME\.codex\hooks.json
 Use a user-level hook so the notification works in every repository. Commands run with
 the active Codex session directory as their working directory, so use absolute paths.
 
-Create or merge this configuration, replacing all repository paths. `UserPromptSubmit` captures the documented `prompt` field; `Stop` reads that per-turn value and sends the notification:
+Create or merge this configuration, replacing all repository paths. `UserPromptSubmit` captures the documented `prompt` field; `PermissionRequest`
+reads it without deleting it; `Stop` later consumes it and sends the completion
+notification:
 
 ```json
 {
@@ -149,6 +155,18 @@ Create or merge this configuration, replacing all repository paths. `UserPromptS
             "type": "command",
             "command": "python \"C:\\absolute\\path\\to\\codex-watch-notifier\\scripts\\codex_complete.py\" --env-file \"C:\\absolute\\path\\to\\codex-watch-notifier\\.env\" --provider ntfy",
             "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"C:\\absolute\\path\\to\\codex-watch-notifier\\scripts\\codex_complete.py\" --env-file \"C:\\absolute\\path\\to\\codex-watch-notifier\\.env\" --provider ntfy",
+            "timeout": 15,
+            "statusMessage": "Sending Codex approval notification"
           }
         ]
       }
@@ -169,21 +187,41 @@ Create or merge this configuration, replacing all repository paths. `UserPromptS
 }
 ```
 
-The prompt is cached by `session_id` and `turn_id` in the operating-system temporary directory, then deleted when the matching `Stop` event consumes it. No transcript parsing is used.
+The prompt is cached by `session_id` and `turn_id` in the operating-system temporary
+directory. `PermissionRequest` performs a non-destructive read, so later approval
+requests and the final `Stop` can reuse it. Only the matching `Stop` deletes it.
+No transcript parsing is used.
+
+Approval notifications use high ntfy priority and this exact shape (the Tool, Project,
+or Directory lines are omitted only when unavailable):
+
+```text
+?? Codex Needs Approval
+Original task prompt
+Action: sanitized and truncated command or action
+Tool: tool_name
+Project: project-folder
+Directory: full working directory
+```
+
+Only the allowlisted `command`, `description`, or `action` field is considered.
+The entire `tool_input` object and any `env` object are never serialized. Common
+tokens, authorization values, URL credentials, and shell environment assignments are
+redacted; task, action, and tool text are length-limited.
 
 A ready-to-edit template is available at
 [`examples/hooks.windows.json`](examples/hooks.windows.json). macOS and Linux users can
 start with [`examples/hooks.posix.json`](examples/hooks.posix.json).
 
 Important: do not replace an existing `notify = [...]` setting in
-`~/.codex/config.toml`. The `Stop` hook is additive and can coexist with Codex Computer
+`~/.codex/config.toml`. These lifecycle hooks are additive and can coexist with Codex Computer
 Use or another existing notification command.
 
 After creating or changing `hooks.json`:
 
 1. Start Codex CLI.
 2. Run `/hooks`.
-3. Review and trust the new `UserPromptSubmit` and `Stop` hooks.
+3. Review and trust the `UserPromptSubmit`, `PermissionRequest`, and `Stop` hooks.
 4. Exit and start a new Codex turn if requested by the CLI.
 
 Codex records trust against the hook definition. If the command changes later, open
@@ -212,7 +250,7 @@ the phone.
 | `NTFY_TOPIC` | none | Required ntfy topic |
 | `NTFY_TOKEN` | none | Optional bearer token for protected topics |
 | `NTFY_PRIORITY` | `default` | ntfy priority, such as `default` or `high` |
-| `CODEX_WATCH_TITLE` | `Codex Watch` | Wrapper/manual notification title; the completion hook uses `✅ Codex Finished` |
+| `CODEX_WATCH_TITLE` | `Codex Watch` | Wrapper/manual notification title; the completion hook uses `? Codex Finished` |
 | `TELEGRAM_BOT_TOKEN` | none | Required only for the optional Telegram provider |
 | `TELEGRAM_CHAT_ID` | none | Required only for the optional Telegram provider |
 | `CODEX_COMMAND` | `codex` | Executable used by the wrapper command |
@@ -264,18 +302,18 @@ process exits, and preserves the original Codex exit code.
 
 ```text
 src/codex_watch/
-├── config.py
-├── hook.py                   # Prompt capture and Stop-event handling
-├── main.py                   # codex-watch CLI
-├── runner.py                 # optional Codex wrapper
-└── notifier/
-    ├── base.py               # provider interface and fan-out service
-    ├── ntfy.py               # ntfy HTTP backend
-    ├── desktop.py            # Windows/macOS/Linux desktop backend
-    └── telegram.py           # optional Telegram backend
+??? config.py
+??? hook.py                   # Prompt capture, approval, and Stop handling
+??? main.py                   # codex-watch CLI
+??? runner.py                 # optional Codex wrapper
+??? notifier/
+    ??? base.py               # provider interface and fan-out service
+    ??? ntfy.py               # ntfy HTTP backend
+    ??? desktop.py            # Windows/macOS/Linux desktop backend
+    ??? telegram.py           # optional Telegram backend
 
 scripts/
-└── codex_complete.py         # executable Stop-hook entry point
+??? codex_complete.py         # executable lifecycle-hook entry point
 ```
 
 Codex event parsing never lives in the ntfy provider. This keeps notification delivery
@@ -301,7 +339,8 @@ python -m compileall -q src scripts tests
 ### Direct test works but Codex sends nothing
 
 - Run `/hooks` and trust the hook definition.
-- Confirm `C:\Users\YOUR_NAME\.codex\hooks.json` contains both `UserPromptSubmit` and `Stop` entries.
+- Confirm `C:\Users\YOUR_NAME\.codex\hooks.json` contains `UserPromptSubmit`,
+  `PermissionRequest`, and `Stop` entries.
 - Use absolute paths in the hook command.
 - Confirm Python is available in the environment used to launch Codex.
 - Run the hook command manually with the test JSON shown above.
@@ -310,7 +349,7 @@ python -m compileall -q src scripts tests
 
 - Lock the iPhone before testing.
 - Ensure the Watch is worn and unlocked.
-- Enable ntfy under **Watch → Notifications → Mirror iPhone Alerts From**.
+- Enable ntfy under **Watch ? Notifications ? Mirror iPhone Alerts From**.
 - Check Focus modes and ntfy notification permissions.
 
 ### ntfy returns an authorization error

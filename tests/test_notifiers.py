@@ -69,7 +69,7 @@ class NotifierTests(unittest.TestCase):
             priority="default",
         ).send(
             Notification(
-                "✅ Codex Finished",
+                "? Codex Finished",
                 "Task and project context",
                 status=NotificationStatus.SUCCESS,
             )
@@ -82,7 +82,24 @@ class NotifierTests(unittest.TestCase):
         self.assertEqual(request.get_header("Authorization"), "Bearer secret")
         self.assertEqual(request.get_header("X-priority"), "high")
         title = str(make_header(decode_header(request.get_header("X-title"))))
-        self.assertEqual(title, "✅ Codex Finished")
+        self.assertEqual(title, "? Codex Finished")
+
+    @patch("codex_watch.notifier.ntfy.urlopen")
+    def test_ntfy_uses_high_priority_for_approval(self, urlopen: MagicMock) -> None:
+        urlopen.return_value.__enter__.return_value = MagicMock()
+
+        NtfyNotifier("https://ntfy.example", "topic", priority="low").send(
+            Notification(
+                "?? Codex Needs Approval",
+                "Action: git push",
+                status=NotificationStatus.ATTENTION,
+            )
+        )
+
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.get_header("X-priority"), "high")
+        title = str(make_header(decode_header(request.get_header("X-title"))))
+        self.assertEqual(title, "?? Codex Needs Approval")
 
     @patch("codex_watch.notifier.ntfy.urlopen")
     def test_ntfy_keeps_configured_priority_for_non_completion(

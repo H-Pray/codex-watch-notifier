@@ -15,8 +15,8 @@ from codex_watch.notifier.base import (
 )
 
 
-COMPLETION_TITLE = "✅ Codex Finished"
-COMPLETION_PRIORITY = "high"
+COMPLETION_TITLE = "? Codex Finished"
+URGENT_PRIORITY = "high"
 
 
 class NtfyNotifier(NotificationProvider):
@@ -57,8 +57,9 @@ class NtfyNotifier(NotificationProvider):
         request.add_header("Content-Type", "text/plain; charset=utf-8")
         title = notification.title.strip() or COMPLETION_TITLE
         priority = (
-            COMPLETION_PRIORITY
-            if notification.status is NotificationStatus.SUCCESS
+            URGENT_PRIORITY
+            if notification.status
+            in {NotificationStatus.SUCCESS, NotificationStatus.ATTENTION}
             else self.priority
         )
         request.add_header("X-Title", Header(title, "utf-8").encode())
