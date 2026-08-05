@@ -118,6 +118,18 @@ Windows command example:
         ]
       }
     ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"C:\\absolute\\path\\to\\codex-watch-notifier\\scripts\\codex_complete.py\" --env-file \"C:\\absolute\\path\\to\\codex-watch-notifier\\.env\" --provider ntfy",
+            "timeout": 15,
+            "statusMessage": "Sending Codex approval notification"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

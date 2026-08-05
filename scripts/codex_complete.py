@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Executable entry point for Codex prompt-capture and Stop hooks."""
+"""Executable entry point for Codex prompt, approval, and Stop hooks."""
 
 from __future__ import annotations
 

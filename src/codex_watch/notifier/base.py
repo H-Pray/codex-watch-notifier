@@ -12,6 +12,7 @@ class NotificationStatus(str, Enum):
     SUCCESS = "success"
     FAILURE = "failure"
     INFO = "info"
+    ATTENTION = "attention"
 
 
 @dataclass(frozen=True)
