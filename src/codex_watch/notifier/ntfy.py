@@ -7,16 +7,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
-from codex_watch.notifier.base import (
-    Notification,
-    NotificationError,
-    NotificationProvider,
-    NotificationStatus,
-)
-
-
-COMPLETION_TITLE = "? Codex Finished"
-URGENT_PRIORITY = "high"
+from codex_watch.notifier.base import Notification, NotificationError, NotificationProvider
 
 
 class NtfyNotifier(NotificationProvider):
@@ -55,15 +46,8 @@ class NtfyNotifier(NotificationProvider):
             method="POST",
         )
         request.add_header("Content-Type", "text/plain; charset=utf-8")
-        title = notification.title.strip() or COMPLETION_TITLE
-        priority = (
-            URGENT_PRIORITY
-            if notification.status
-            in {NotificationStatus.SUCCESS, NotificationStatus.ATTENTION}
-            else self.priority
-        )
-        request.add_header("X-Title", Header(title, "utf-8").encode())
-        request.add_header("X-Priority", priority)
+        request.add_header("X-Title", Header(notification.title, "utf-8").encode())
+        request.add_header("X-Priority", self.priority)
         if self.token:
             request.add_header("Authorization", f"Bearer {self.token}")
 
