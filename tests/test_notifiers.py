@@ -1,10 +1,12 @@
 import io
+from email.header import decode_header, make_header
 import unittest
 from unittest.mock import MagicMock, patch
 
 from codex_watch.notifier.base import (
     Notification,
     NotificationProvider,
+    NotificationStatus,
     NotifierService,
 )
 from codex_watch.notifier.ntfy import NtfyNotifier
