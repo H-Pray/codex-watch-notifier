@@ -1,142 +1,107 @@
-# codex-watch-notifier
+# ⌚ Codex Watch Notifier
 
-Receive an Apple Watch notification when a local OpenAI Codex CLI turn finishes.
+> Get notified on your phone and Apple Watch when Codex CLI finishes a task.  
+> 当 Codex CLI 完成任务时，在手机和 Apple Watch 上收到提醒。
 
-```text
-Codex CLI
-    ↓ Stop lifecycle hook
-scripts/codex_complete.py
-    ↓
-NtfyNotifier
-    ↓
-ntfy server
-    ↓
-iPhone notification
-    ↓ notification mirroring
-Apple Watch vibration
-```
+## Introduction | 项目简介
 
-The notification includes the prompt and project context:
+Codex Watch Notifier is a lightweight notification tool for Codex CLI. It uses Codex lifecycle hooks to capture the original task and sends a completion notification containing the task name and project context, so you do not need to keep checking the terminal.
+
+Codex Watch Notifier 是一个面向 Codex CLI 的轻量级通知工具。它通过 Codex 生命周期 Hook 捕获原始任务，并在任务完成后发送包含任务名称和项目上下文的通知，让你无需一直查看终端。
+
+## Features | 功能
+
+- Codex lifecycle hook integration｜集成 Codex 生命周期 Hook
+- Original task prompt capture｜捕获用户原始任务
+- Project name and directory context｜显示项目名称和工作目录
+- ntfy, desktop and Telegram providers｜支持 ntfy、桌面通知和 Telegram
+- iPhone and Apple Watch notifications｜支持 iPhone 和 Apple Watch
+- Fail-open behavior｜通知失败不会影响 Codex 正常完成任务
+
+Example notification｜通知示例：
 
 ```text
 ✅ Codex Finished
-Improve the Codex Watch notification system
+
+Improve Codex Watch notification content
 Project: codex-watch-notifier
-Directory: C:\work\codex-watch-notifier
+Directory: C:\Projects\codex-watch-notifier
 ```
 
-If Codex cannot associate a prompt with the completed turn, the body falls back to
-`Codex task completed`.
+## How It Works | 工作原理
 
-The tool uses Python 3.9 or newer and has no third-party runtime dependencies.
+Codex Watch Notifier uses two lifecycle events:
 
-## Features
+```text
+UserPromptSubmit → Save task context
+Codex executes the task
+Stop             → Send notification
+```
 
-- Official Codex `UserPromptSubmit` prompt capture plus `Stop` completion integration.
-- ntfy notifications for iPhone and Apple Watch.
-- Optional desktop notifications on Windows, macOS, and Linux.
-- Optional Telegram provider retained for existing users.
-- Environment-based configuration with `.env` support.
-- A wrapper command for older or custom Codex workflows.
-- Notification failures never prevent Codex from completing a turn.
+The `Stop` event does not contain the original prompt, so the project stores it during `UserPromptSubmit` and retrieves it using `session_id + turn_id` when the task finishes.
 
-## Quick start on Windows
+由于 `Stop` 事件不包含原始 Prompt，本项目会在 `UserPromptSubmit` 阶段保存任务，并在任务完成时通过 `session_id + turn_id` 恢复对应上下文。
 
-Clone and enter the repository:
+## Installation | 安装
 
-```powershell
+### 1. Clone the repository | 克隆仓库
+
+```bash
 git clone https://github.com/H1234L1/codex-watch-notifier.git
 cd codex-watch-notifier
 ```
 
-The hook script can run directly from the clone. Installing the package also makes
-the `codex-watch` wrapper command available:
+### 2. Install the package | 安装项目
 
-```powershell
-python -m pip install .
+```bash
+pip install -e .
 ```
 
-Create your local configuration:
+### 3. Configure ntfy | 配置 ntfy
+
+Copy `example.env` to `.env`:
+
+```bash
+cp example.env .env
+```
+
+Windows PowerShell:
 
 ```powershell
 Copy-Item example.env .env
-notepad .env
 ```
 
-Set at least these values:
+Edit `.env`:
 
-```dotenv
+```env
 NOTIFICATION_PROVIDERS=ntfy
 NTFY_SERVER_URL=https://ntfy.sh
-NTFY_TOPIC=codex-watch-2026
-NTFY_TOKEN=
+NTFY_TOPIC=your-private-topic
 NTFY_PRIORITY=default
-CODEX_WATCH_TITLE=Codex Watch
 ```
 
-`.env` is ignored by Git and must not be committed.
+Install the ntfy app on your iPhone, subscribe to the same topic, and enable ntfy notification mirroring in the Apple Watch app.
 
-## ntfy and Apple Watch setup
+在 iPhone 上安装 ntfy，订阅相同 Topic，并在 Watch App 中开启 ntfy 通知镜像。
 
-1. Install the ntfy app on the paired iPhone.
-2. Subscribe to the same topic configured in `NTFY_TOPIC`.
-3. Enable ntfy notifications in **iPhone Settings → Notifications → ntfy**.
-4. Open the iPhone **Watch** app.
-5. Open **My Watch → Notifications**.
-6. Under **Mirror iPhone Alerts From**, enable ntfy.
-7. For a realistic test, wear and unlock the Watch, then lock the iPhone.
+### 4. Configure Codex Hooks | 配置 Codex Hook
 
-Apple normally sends an alert to either the unlocked iPhone or the Watch, not both.
-When the iPhone is locked or asleep, the alert should be routed to the unlocked Watch.
-Focus modes and muted app notifications can suppress the vibration.
-
-### Topic security
-
-Public ntfy topics have no access control unless you configure authentication. Anyone
-who guesses a public topic name may be able to publish to or subscribe to it. Prefer a
-long random topic for normal use, or configure `NTFY_TOKEN` with a protected/self-hosted
-ntfy server.
-
-## Test ntfy before configuring Codex
-
-From the repository directory, simulate the two Codex events with the same session and
-turn IDs:
-
-```powershell
-'{"hook_event_name":"UserPromptSubmit","session_id":"manual-test","turn_id":"turn-1","prompt":"Improve the Codex Watch notification","cwd":"C:\\work\\codex-watch-notifier"}' |
-    python .\scripts\codex_complete.py --env-file .\.env --provider ntfy
-
-'{"hook_event_name":"Stop","session_id":"manual-test","turn_id":"turn-1","stop_hook_active":false,"cwd":"C:\\work\\codex-watch-notifier"}' |
-    python .\scripts\codex_complete.py --env-file .\.env --provider ntfy
-```
-
-Expected console output:
-
-```json
-{"continue": true, "suppressOutput": true}
-```
-
-With the iPhone locked, your Apple Watch should receive a notification titled `✅ Codex Finished` containing the simulated prompt and project. The JSON output is the
-normal machine-readable response expected by the Codex Stop hook.
-
-You can also test ntfy without a hook payload after installing the package:
-
-```powershell
-codex-watch notify --provider ntfy --message "Codex completed!"
-```
-
-## Configure Codex prompt capture and the Stop hook
-
-Codex reads user-level hooks from:
+Example files are included:
 
 ```text
-C:\Users\YOUR_NAME\.codex\hooks.json
+examples/hooks.windows.json
+examples/hooks.posix.json
 ```
 
-Use a user-level hook so the notification works in every repository. Commands run with
-the active Codex session directory as their working directory, so use absolute paths.
+Copy the appropriate configuration to:
 
-Create or merge this configuration, replacing all repository paths. `UserPromptSubmit` captures the documented `prompt` field; `Stop` reads that per-turn value and sends the notification:
+```text
+~/.codex/hooks.json
+```
+
+Replace the script and `.env` paths with absolute paths to your local repository.
+
+Windows command example:
 
 ```json
 {
@@ -147,7 +112,7 @@ Create or merge this configuration, replacing all repository paths. `UserPromptS
         "hooks": [
           {
             "type": "command",
-            "command": "python \"C:\\absolute\\path\\to\\codex-watch-notifier\\scripts\\codex_complete.py\" --env-file \"C:\\absolute\\path\\to\\codex-watch-notifier\\.env\" --provider ntfy",
+            "command": "python \"C:\\path\\to\\codex-watch-notifier\\scripts\\codex_complete.py\" --env-file \"C:\\path\\to\\codex-watch-notifier\\.env\" --provider ntfy",
             "timeout": 5
           }
         ]
@@ -158,9 +123,8 @@ Create or merge this configuration, replacing all repository paths. `UserPromptS
         "hooks": [
           {
             "type": "command",
-            "command": "python \"C:\\absolute\\path\\to\\codex-watch-notifier\\scripts\\codex_complete.py\" --env-file \"C:\\absolute\\path\\to\\codex-watch-notifier\\.env\" --provider ntfy",
-            "timeout": 15,
-            "statusMessage": "Sending Codex completion notification"
+            "command": "python \"C:\\path\\to\\codex-watch-notifier\\scripts\\codex_complete.py\" --env-file \"C:\\path\\to\\codex-watch-notifier\\.env\" --provider ntfy",
+            "timeout": 15
           }
         ]
       }
@@ -169,156 +133,82 @@ Create or merge this configuration, replacing all repository paths. `UserPromptS
 }
 ```
 
-The prompt is cached by `session_id` and `turn_id` in the operating-system temporary directory, then deleted when the matching `Stop` event consumes it. No transcript parsing is used.
-
-A ready-to-edit template is available at
-[`examples/hooks.windows.json`](examples/hooks.windows.json). macOS and Linux users can
-start with [`examples/hooks.posix.json`](examples/hooks.posix.json).
-
-Important: do not replace an existing `notify = [...]` setting in
-`~/.codex/config.toml`. The `Stop` hook is additive and can coexist with Codex Computer
-Use or another existing notification command.
-
-After creating or changing `hooks.json`:
-
-1. Start Codex CLI.
-2. Run `/hooks`.
-3. Review and trust the new `UserPromptSubmit` and `Stop` hooks.
-4. Exit and start a new Codex turn if requested by the CLI.
-
-Codex records trust against the hook definition. If the command changes later, open
-`/hooks` and approve the new definition again. See the
-[official Codex hooks documentation](https://developers.openai.com/codex/hooks).
-
-## End-to-end Codex test on Windows
-
-PowerShell may choose the npm `codex.ps1` shim, which can be blocked by execution
-policy. Calling `codex.cmd` avoids that issue:
-
-```powershell
-codex.cmd exec "Reply with only: done"
-```
-
-When the turn stops, the hook sends the original prompt and working-directory context through ntfy. Lock the iPhone
-before running the command if you want the alert to appear on Apple Watch rather than
-the phone.
-
-## Configuration reference
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `NOTIFICATION_PROVIDERS` | `desktop` | Comma-separated provider names: `ntfy`, `desktop`, `telegram` |
-| `NTFY_SERVER_URL` | `https://ntfy.sh` | ntfy server base URL |
-| `NTFY_TOPIC` | none | Required ntfy topic |
-| `NTFY_TOKEN` | none | Optional bearer token for protected topics |
-| `NTFY_PRIORITY` | `default` | ntfy priority, such as `default` or `high` |
-| `CODEX_WATCH_TITLE` | `Codex Watch` | Wrapper/manual notification title; the completion hook uses `✅ Codex Finished` |
-| `TELEGRAM_BOT_TOKEN` | none | Required only for the optional Telegram provider |
-| `TELEGRAM_CHAT_ID` | none | Required only for the optional Telegram provider |
-| `CODEX_COMMAND` | `codex` | Executable used by the wrapper command |
-| `CODEX_ARGS` | `exec` | Arguments placed before the wrapper prompt |
-
-Real environment variables take precedence over `.env` values.
-
-## Optional providers
-
-Use ntfy and desktop together:
-
-```dotenv
-NOTIFICATION_PROVIDERS=ntfy,desktop
-```
-
-Send one desktop test:
-
-```powershell
-codex-watch notify --provider desktop --message "Desktop test"
-```
-
-Telegram remains supported for existing users:
-
-```dotenv
-NOTIFICATION_PROVIDERS=telegram
-TELEGRAM_BOT_TOKEN=replace-with-your-token
-TELEGRAM_CHAT_ID=replace-with-your-chat-id
-```
-
-```powershell
-codex-watch notify --provider telegram --message "Telegram test"
-```
-
-No Telegram configuration is needed for the ntfy/Apple Watch workflow.
-
-## Wrapper command
-
-The official Stop hook is recommended. The existing wrapper remains useful when hooks
-are unavailable or when wrapping another Codex executable:
-
-```powershell
-codex-watch run "refactor the API client"
-```
-
-It executes `codex exec <prompt>`, sends success or failure notifications after the
-process exits, and preserves the original Codex exit code.
-
-## Architecture
+Restart Codex, run `/hooks`, and trust both hooks:
 
 ```text
-src/codex_watch/
-├── config.py
-├── hook.py                   # Prompt capture and Stop-event handling
-├── main.py                   # codex-watch CLI
-├── runner.py                 # optional Codex wrapper
-└── notifier/
-    ├── base.py               # provider interface and fan-out service
-    ├── ntfy.py               # ntfy HTTP backend
-    ├── desktop.py            # Windows/macOS/Linux desktop backend
-    └── telegram.py           # optional Telegram backend
-
-scripts/
-└── codex_complete.py         # executable Stop-hook entry point
+UserPromptSubmit
+Stop
 ```
 
-Codex event parsing never lives in the ntfy provider. This keeps notification delivery
-replaceable and makes the hook independently testable.
+Both should show `Installed: 1` and `Active: 1`.
 
-## Development and tests
+## Testing | 测试
 
-Unit tests mock network requests and do not send real ntfy or Telegram messages:
+Run the automated tests:
 
-```powershell
-$env:PYTHONPATH = "$PWD\src"
-python -B -m unittest discover -s tests -v
+```bash
+pytest
 ```
 
-Check source compilation:
+Current result:
 
-```powershell
-python -m compileall -q src scripts tests
+```text
+19 tests passed
 ```
 
-## Troubleshooting
+You can also test ntfy manually:
 
-### Direct test works but Codex sends nothing
+```bash
+echo '{"hook_event_name":"Stop","session_id":"manual-test","turn_id":"turn-1","stop_hook_active":false,"cwd":"."}' | python scripts/codex_complete.py --env-file .env --provider ntfy
+```
 
-- Run `/hooks` and trust the hook definition.
-- Confirm `C:\Users\YOUR_NAME\.codex\hooks.json` contains both `UserPromptSubmit` and `Stop` entries.
-- Use absolute paths in the hook command.
-- Confirm Python is available in the environment used to launch Codex.
-- Run the hook command manually with the test JSON shown above.
+Then run a real Codex task and confirm that the completion notification appears on your phone or Apple Watch.
 
-### iPhone receives it but Apple Watch does not vibrate
+## Apple Watch Notes | Apple Watch 说明
 
-- Lock the iPhone before testing.
-- Ensure the Watch is worn and unlocked.
-- Enable ntfy under **Watch → Notifications → Mirror iPhone Alerts From**.
-- Check Focus modes and ntfy notification permissions.
+Notifications are delivered through the Internet:
 
-### ntfy returns an authorization error
+```text
+Codex → ntfy → iPhone → Apple Watch
+```
 
-- Remove `NTFY_TOKEN` for an unprotected public topic.
-- For a protected topic, verify the bearer token and server URL.
-- Confirm the token has permission to publish to the selected topic.
+There is no direct distance limit between the computer and Apple Watch. However, the iPhone or Apple Watch must have an available network connection.
 
-## License
+电脑与 Apple Watch 之间没有直接距离限制，但 iPhone 或 Apple Watch 需要保持联网。
 
-[MIT](LICENSE)
+When the iPhone is unlocked and being used, iOS may display the notification only on the phone. Locking the iPhone makes Apple Watch vibration more reliable.
+
+当 iPhone 正在解锁使用时，通知可能只显示在手机上；锁定 iPhone 后，Apple Watch 通常会更稳定地收到震动提醒。
+
+## Project Structure | 项目结构
+
+```text
+codex-watch-notifier/
+├── examples/
+│   ├── hooks.posix.json
+│   └── hooks.windows.json
+├── scripts/
+│   └── codex_complete.py
+├── src/
+│   └── codex_watch/
+│       ├── config.py
+│       ├── hook.py
+│       ├── main.py
+│       └── notifier/
+│           ├── base.py
+│           ├── ntfy.py
+│           └── telegram.py
+├── tests/
+│   ├── test_config.py
+│   ├── test_hook.py
+│   └── test_notifiers.py
+├── example.env
+├── pyproject.toml
+└── README.md
+```
+
+## License | 开源协议
+
+This project is licensed under the MIT License.
+
+本项目使用 MIT License。
