@@ -16,6 +16,8 @@ Codex Watch Notifier 是一个面向 Codex CLI 的轻量级通知工具。它通
 - Project name and directory context｜显示项目名称和工作目录
 - ntfy, desktop and Telegram providers｜支持 ntfy、桌面通知和 Telegram
 - iPhone and Apple Watch notifications｜支持 iPhone 和 Apple Watch
+- Apple Watch approval actions｜支持 Apple Watch 审批按钮
+- Computer Use approval notifications｜支持 Computer Use 审批通知
 - Fail-open behavior｜通知失败不会影响 Codex 正常完成任务
 
 Example notification｜通知示例：
@@ -175,6 +177,18 @@ echo '{"hook_event_name":"Stop","session_id":"manual-test","turn_id":"turn-1","s
 ```
 
 Then run a real Codex task and confirm that the completion notification appears on your phone or Apple Watch.
+
+### Apple Watch Approval Actions | Apple Watch 审批按钮
+
+When `CODEX_WATCH_APPROVALS=true`, a `PermissionRequest` notification includes two ntfy actions:
+
+```text
+ALLOW | DENY
+```
+
+The two actions return an allow or deny decision to the waiting Codex hook. Each request uses a random response topic and expires after `CODEX_APPROVAL_TIMEOUT` seconds.
+
+Computer Use permission requests use the dedicated title `Codex Computer Use` and the same `ALLOW` and `DENY` actions.
 
 ## Apple Watch Notes | Apple Watch 说明
 

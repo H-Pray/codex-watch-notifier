@@ -16,10 +16,22 @@ class NotificationStatus(str, Enum):
 
 
 @dataclass(frozen=True)
+class NotificationAction:
+    """An action button attached to a notification."""
+
+    label: str
+    url: str
+    body: str = ""
+    method: str = "POST"
+    clear: bool = True
+
+
+@dataclass(frozen=True)
 class Notification:
     title: str
     message: str
     status: NotificationStatus = NotificationStatus.INFO
+    actions: tuple[NotificationAction, ...] = ()
 
 
 class NotificationError(RuntimeError):

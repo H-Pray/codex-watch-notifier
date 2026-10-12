@@ -69,6 +69,8 @@ class Settings:
     codex_command: str = "codex"
     codex_args: tuple[str, ...] = ("exec",)
     notification_title: str = "Codex Watch"
+    approval_actions: bool = True
+    approval_timeout: float = 300.0
 
     @classmethod
     def from_environment(cls, environ: Mapping[str, str] | None = None) -> "Settings":
@@ -92,6 +94,9 @@ class Settings:
             codex_args=_split_command_args(values.get("CODEX_ARGS", "exec")),
             notification_title=values.get("CODEX_WATCH_TITLE", "Codex Watch").strip()
             or "Codex Watch",
+            approval_actions=values.get("CODEX_WATCH_APPROVALS", "true").strip().lower()
+            not in {"0", "false", "no", "off"},
+            approval_timeout=float(values.get("CODEX_APPROVAL_TIMEOUT", "300")),
         )
 
     def validate_provider(self, name: str) -> None:

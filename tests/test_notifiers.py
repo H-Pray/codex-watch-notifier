@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from codex_watch.notifier.base import (
     Notification,
+    NotificationAction,
     NotificationProvider,
     NotificationStatus,
     NotifierService,
@@ -75,6 +76,29 @@ class NotifierTests(unittest.TestCase):
         self.assertEqual(request.data.decode("utf-8"), "Codex completed!")
         self.assertEqual(request.get_header("Authorization"), "Bearer secret")
         self.assertEqual(request.get_header("X-priority"), "high")
+
+    @patch("codex_watch.notifier.ntfy.urlopen")
+    def test_ntfy_encodes_approval_actions(self, urlopen: MagicMock) -> None:
+        response = MagicMock()
+        response.read.return_value = b'{"id": "message-id"}'
+        urlopen.return_value.__enter__.return_value = response
+
+        NtfyNotifier("https://ntfy.example", "private-topic").send(
+            Notification(
+                "Codex Watch",
+                "needs approval",
+                actions=(
+                    NotificationAction("ALLOW", "https://ntfy.example/reply", "approve"),
+                    NotificationAction("DENY", "https://ntfy.example/reply", "deny"),
+                ),
+            )
+        )
+
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.get_header("Content-type"), "text/plain; charset=utf-8")
+        self.assertIn("http, ALLOW, https://ntfy.example/reply", request.get_header("Actions"))
+        self.assertIn("body=approve", request.get_header("Actions"))
+        self.assertIn("http, DENY, https://ntfy.example/reply", request.get_header("Actions"))
 
 
 if __name__ == "__main__":

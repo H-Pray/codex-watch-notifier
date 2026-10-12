@@ -8,6 +8,7 @@ from unittest.mock import patch
 from codex_watch.hook import (
     APPROVAL_MESSAGE,
     APPROVAL_NOTIFICATION_TITLE,
+    COMPUTER_USE_NOTIFICATION_TITLE,
     COMPLETION_MESSAGE,
     NOTIFICATION_TITLE,
     TaskContext,
@@ -15,7 +16,13 @@ from codex_watch.hook import (
     handle_stop_event,
     main,
 )
-from codex_watch.notifier.base import Notification, NotificationProvider, NotifierService
+from codex_watch.approval import ApprovalDecision
+from codex_watch.notifier.base import (
+    Notification,
+    NotificationAction,
+    NotificationProvider,
+    NotifierService,
+)
 
 
 class RecordingProvider(NotificationProvider):
@@ -55,10 +62,10 @@ class HookTests(unittest.TestCase):
         self.assertTrue(results[0].delivered)
         notification = provider.notifications[0]
         self.assertEqual(notification.title, NOTIFICATION_TITLE)
-        self.assertEqual(notification.title, "? Codex Finished")
+        self.assertEqual(notification.title, "✅ Codex Finished")
         self.assertIn("Improve completion notifications", notification.message)
-        self.assertIn("Project: codex-watch-notifier", notification.message)
-        self.assertIn(f"Directory: {event['cwd']}", notification.message)
+        self.assertIn("Proj: codex-watch-notifier", notification.message)
+        self.assertIn(f"Dir: {event['cwd']}", notification.message)
 
     def test_stop_event_uses_safe_fallback_without_prompt(self) -> None:
         provider = RecordingProvider()
@@ -117,7 +124,7 @@ class HookTests(unittest.TestCase):
 
         self.assertEqual(len(provider.notifications), 1)
         self.assertIn(prompt_event["prompt"], provider.notifications[0].message)
-        self.assertIn("Project: watch-project", provider.notifications[0].message)
+        self.assertIn("Proj: watch-project", provider.notifications[0].message)
 
     def test_permission_request_includes_context_and_safe_action(self) -> None:
         provider = RecordingProvider()
@@ -143,7 +150,7 @@ class HookTests(unittest.TestCase):
         self.assertTrue(results[0].delivered)
         notification = provider.notifications[0]
         self.assertEqual(notification.title, APPROVAL_NOTIFICATION_TITLE)
-        self.assertEqual(notification.title, "?? Codex Needs Approval")
+        self.assertEqual(notification.title, "⚠️ Codex Needs Approval")
         self.assertIn("Push version tag to GitHub", notification.message)
         self.assertIn(
             "Action: GH_TOKEN=[REDACTED] git push origin v1.0.0 "
@@ -151,8 +158,8 @@ class HookTests(unittest.TestCase):
             notification.message,
         )
         self.assertIn("Tool: shell_command", notification.message)
-        self.assertIn("Project: codex-watch-notifier", notification.message)
-        self.assertIn("Directory: C:/work/codex-watch-notifier", notification.message)
+        self.assertIn("Proj: codex-watch-notifier", notification.message)
+        self.assertIn("Dir: C:/work/codex-watch-notifier", notification.message)
         self.assertNotIn("top-secret", notification.message)
         self.assertNotIn("must-never-appear", notification.message)
 
@@ -171,6 +178,24 @@ class HookTests(unittest.TestCase):
         action = message.splitlines()[1].removeprefix("Action: ")
         self.assertLessEqual(len(action), 180)
         self.assertTrue(action.endswith("?"))
+
+    def test_computer_use_permission_uses_dedicated_title_and_actions(self) -> None:
+        provider = RecordingProvider()
+        handle_permission_request_event(
+            {
+                "hook_event_name": "PermissionRequest",
+                "tool_name": "computer_use_preview",
+                "tool_input": {"action": "click"},
+            },
+            NotifierService([provider]),
+            actions=(
+                NotificationAction("ALLOW", "https://ntfy.example/reply", "approve"),
+                NotificationAction("DENY", "https://ntfy.example/reply", "deny"),
+            ),
+        )
+        notification = provider.notifications[0]
+        self.assertEqual(notification.title, COMPUTER_USE_NOTIFICATION_TITLE)
+        self.assertEqual([action.label for action in notification.actions], ["ALLOW", "DENY"])
 
     @patch("codex_watch.hook.build_providers")
     def test_permission_request_does_not_consume_prompt_before_stop(
@@ -245,6 +270,40 @@ class HookTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertTrue(json.loads(output.getvalue())["continue"])
         self.assertIn("notification failed", error.getvalue())
+
+    @patch("codex_watch.hook.wait_for_decision", return_value=ApprovalDecision("allow"))
+    @patch("codex_watch.hook.build_providers")
+    def test_permission_request_returns_watch_allow_decision(
+        self, build: object, wait: object
+    ) -> None:
+        provider = RecordingProvider()
+        build.return_value = [provider]
+        event = {
+            "hook_event_name": "PermissionRequest",
+            "tool_name": "Bash",
+            "tool_input": {"command": "echo approval"},
+        }
+        output = io.StringIO()
+        with patch("sys.stdout", output), patch.dict(
+            "os.environ",
+            {
+                "NOTIFICATION_PROVIDERS": "ntfy",
+                "NTFY_TOPIC": "private-topic",
+                "NTFY_SERVER_URL": "https://ntfy.example",
+            },
+            clear=True,
+        ):
+            self.assertEqual(
+                main([], input_stream=io.StringIO(json.dumps(event))),
+                0,
+            )
+        response = json.loads(output.getvalue())
+        self.assertEqual(
+            response["hookSpecificOutput"]["decision"]["behavior"],
+            "allow",
+        )
+        self.assertEqual(len(provider.notifications[0].actions), 2)
+        wait.assert_called_once()
 
     @patch("codex_watch.hook.build_providers", return_value=[])
     def test_hook_main_outputs_valid_stop_response(self, build: object) -> None:

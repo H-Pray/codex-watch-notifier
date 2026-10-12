@@ -19,17 +19,20 @@ import sys
 import tempfile
 from typing import Any, TextIO
 
+from codex_watch.approval import create_approval_request, wait_for_decision
 from codex_watch.config import ConfigurationError, Settings, load_dotenv, resolve_provider_names
 from codex_watch.notifier import build_providers
 from codex_watch.notifier.base import (
     DeliveryResult,
     Notification,
+    NotificationAction,
     NotificationStatus,
     NotifierService,
 )
 
-NOTIFICATION_TITLE = "? Codex Finished"
-APPROVAL_NOTIFICATION_TITLE = "?? Codex Needs Approval"
+NOTIFICATION_TITLE = "✅ Codex Finished"
+APPROVAL_NOTIFICATION_TITLE = "⚠️ Codex Needs Approval"
+COMPUTER_USE_NOTIFICATION_TITLE = "Codex Computer Use"
 COMPLETION_MESSAGE = "Codex task completed"
 APPROVAL_MESSAGE = "Codex task awaiting approval"
 HOOK_SUCCESS_RESPONSE = {"continue": True, "suppressOutput": True}
@@ -169,6 +172,17 @@ def _project_name(cwd: str) -> str:
     return re.split(r"[/\\]", cwd.rstrip("/\\"))[-1]
 
 
+def _display_directory(cwd: str) -> str:
+    """Shorten the local home directory for compact watch notifications."""
+
+    home = str(Path.home()).rstrip("/\\")
+    if cwd == home:
+        return "~"
+    if cwd.startswith(home + "/"):
+        return "~" + cwd[len(home) :]
+    return cwd
+
+
 def format_completion_message(event: dict[str, Any], context: TaskContext | None) -> str:
     """Build a concise body containing the task and available project details."""
 
@@ -177,9 +191,10 @@ def format_completion_message(event: dict[str, Any], context: TaskContext | None
     if cwd is None:
         return task
     project_name = _project_name(cwd)
+    display_directory = _display_directory(cwd)
     if project_name:
-        return f"{task}\nProject: {project_name}\nDirectory: {cwd}"
-    return f"{task}\nDirectory: {cwd}"
+        return f"{task}\nProj: {project_name}\nDir: {display_directory}"
+    return f"{task}\nDir: {display_directory}"
 
 
 def format_permission_message(event: dict[str, Any], context: TaskContext | None) -> str:
@@ -201,9 +216,17 @@ def format_permission_message(event: dict[str, Any], context: TaskContext | None
     if cwd:
         project_name = _sanitize_text(_project_name(cwd), limit=MAX_TOOL_LENGTH)
         if project_name:
-            lines.append(f"Project: {project_name}")
-        lines.append(f"Directory: {_sanitize_text(cwd, limit=MAX_TASK_LENGTH)}")
+            lines.append(f"Proj: {project_name}")
+        display_directory = _display_directory(cwd)
+        lines.append(f"Dir: {_sanitize_text(display_directory, limit=MAX_TASK_LENGTH)}")
     return "\n".join(lines)
+
+
+def _is_computer_use_request(event: dict[str, Any]) -> bool:
+    """Recognize Computer Use permission requests across tool-name variants."""
+
+    tool_name = event.get("tool_name")
+    return isinstance(tool_name, str) and "computer" in tool_name.lower()
 
 
 def handle_stop_event(
@@ -230,6 +253,7 @@ def handle_permission_request_event(
     service: NotifierService,
     *,
     context: TaskContext | None = None,
+    actions: tuple[NotificationAction, ...] = (),
 ) -> list[DeliveryResult]:
     """Notify about an approval prompt without making an allow/deny decision."""
 
@@ -237,9 +261,14 @@ def handle_permission_request_event(
         return []
     return service.send(
         Notification(
-            title=APPROVAL_NOTIFICATION_TITLE,
+            title=(
+                COMPUTER_USE_NOTIFICATION_TITLE
+                if _is_computer_use_request(event)
+                else APPROVAL_NOTIFICATION_TITLE
+            ),
             message=format_permission_message(event, context),
             status=NotificationStatus.ATTENTION,
+            actions=actions,
         )
     )
 
@@ -272,6 +301,7 @@ def main(
     context_dir = state_dir or Path(tempfile.gettempdir()) / "codex-watch-notifier"
 
     try:
+        response: dict[str, object] = HOOK_SUCCESS_RESPONSE
         event = json.load(stream)
         if not isinstance(event, dict):
             raise ValueError("hook input must be a JSON object")
@@ -286,7 +316,23 @@ def main(
             service = NotifierService(build_providers(settings, provider_names))
             if event_name == "PermissionRequest":
                 context = read_task_context(event, context_dir)
-                results = handle_permission_request_event(event, service, context=context)
+                approval_request = None
+                if settings.approval_actions and "ntfy" in provider_names:
+                    approval_request = create_approval_request(settings.ntfy_server_url)
+                results = handle_permission_request_event(
+                    event,
+                    service,
+                    context=context,
+                    actions=approval_request.actions if approval_request else (),
+                )
+                if approval_request and any(result.delivered for result in results):
+                    decision = wait_for_decision(
+                        settings.ntfy_server_url,
+                        approval_request.response_topic,
+                        timeout=settings.approval_timeout,
+                    )
+                    if decision is not None:
+                        response = decision.as_hook_response()
             else:
                 context = None
                 if event.get("stop_hook_active") is not True:
@@ -305,6 +351,5 @@ def main(
     except Exception as exc:
         print(f"Warning: Codex lifecycle notifier failed: {exc}", file=sys.stderr)
 
-    # This command never returns a PermissionRequest allow/deny decision.
-    print(json.dumps(HOOK_SUCCESS_RESPONSE))
+    print(json.dumps(response, ensure_ascii=False))
     return 0

@@ -48,6 +48,8 @@ class NtfyNotifier(NotificationProvider):
         request.add_header("Content-Type", "text/plain; charset=utf-8")
         request.add_header("X-Title", Header(notification.title, "utf-8").encode())
         request.add_header("X-Priority", self.priority)
+        if notification.actions:
+            request.add_header("Actions", self._format_actions(notification))
         if self.token:
             request.add_header("Authorization", f"Bearer {self.token}")
 
@@ -61,3 +63,17 @@ class NtfyNotifier(NotificationProvider):
             raise NotificationError(f"Could not reach ntfy: {exc.reason}") from exc
         except OSError as exc:
             raise NotificationError(f"ntfy request failed: {exc}") from exc
+
+    @staticmethod
+    def _format_actions(notification: Notification) -> str:
+        """Encode ntfy HTTP actions using its ASCII short format."""
+
+        encoded = []
+        for action in notification.actions[:3]:
+            parts = ["http", action.label, action.url, f"method={action.method}"]
+            if action.body:
+                parts.append(f"body={action.body}")
+            if action.clear:
+                parts.append("clear=true")
+            encoded.append(", ".join(parts))
+        return "; ".join(encoded)
